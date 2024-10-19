@@ -1,4 +1,4 @@
 __pycache__/
 notes.md
-yfinance.cache
+src/yfinance.cache
 auth/
