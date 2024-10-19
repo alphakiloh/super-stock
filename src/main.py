@@ -10,9 +10,11 @@ from requests_cache import CacheMixin, SQLiteCache
 from requests_ratelimiter import LimiterMixin, MemoryQueueBucket
 from pyrate_limiter import Duration, RequestRate, Limiter
 import datetime
-#from google.colab import files, auth
-from google.auth import default
+
 import gspread
+from google.oauth2.service_account import Credentials
+from gspread_dataframe import set_with_dataframe
+
 
 class CachedLimiterSession(CacheMixin, LimiterMixin, Session):
     pass
@@ -65,11 +67,13 @@ def main():
         "eps3",
         "eps4",
         "eps5",
+        "eps6"
         "rev1",
         "rev2",
         "rev3",
         "rev4",
         "rev5",
+        "rev6",
         "grossMargin",
         "netMargin",
         "opMargin",
@@ -146,19 +150,33 @@ def main():
 
      
 
-    auth.authenticate_user()
-    creds, _ = default()
-    gc = gspread.authorize(creds)
 
     ct = datetime.datetime.now()
     wb_name = "screener_" + str(ct)
 
+
+
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+
+
+    # https://developers.google.com/workspace/guides/create-credentials <--service account: download JSON file, share folder with account email
+    gauth_path = "../auth/screener-420319-cee3c8c66be8.json"
+
+    creds = Credentials.from_service_account_file(gauth_path, scopes=scopes)
+    gc = gspread.authorize(creds)
+    
+
     # G:My Drive\Finance\Screener\
-    worksheet = gc.create(title= wb_name, folder_id= "15IHdGgeH4YeZH19fD8Ni7eYXvoiHBSsJ")
-    sheet1 = worksheet.sheet1
+    folder_id = "15IHdGgeH4YeZH19fD8Ni7eYXvoiHBSsJ"
+    
+    wb = gc.create(title= wb_name, folder_id=folder_id)
+    s1 = wb.sheet1
 
-    sheet1.update([df.columns.values.tolist()] + df.fillna("NaN").values.tolist())
-
+    set_with_dataframe(s1, df)
+    #s1.update([df.columns.values.tolist()] + df.fillna("NaN").values.tolist())
 
     print(df)
 
