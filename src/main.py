@@ -79,6 +79,8 @@ def main():
     # DEBUG : limit to first n tickers
     #df.drop(df.tail(len(df.index) - 20).index, inplace=True)
 
+    # DEBUG : limit to small number of tickers, including trouble tickers
+    #df = df[df["ticker"].isin(["CTA-PA","APPL","NVDA","GOOG","NFLX"])]
     #print(df)
 
     #exit()
@@ -158,11 +160,13 @@ def main():
     wb = gs.create(title= wb_name, folder_id=GDRIVE_FOLDER_ID)
     wb.sheet1.update_title("Data")
 
+    # build list of dictionaries to feed to gspread to fromat our columns
+    # assume we do not need more than 52 columns (i.e. column AZ)
     gs_format = []
 
     c1 = "A"
     c2 = ""
-    x = 1
+
     for f in formats:
         col = c1 + c2
         match f:
@@ -254,6 +258,7 @@ def main():
         log(" : summary & historical data retrieved")
 
         # we want a full year of price history
+        # setting ticker to NULL string means it gets filtered/dropped later
         if len(hist.index) < 252:
             log(" : *********** not enough historical price data!!!!! ***********\n")
             bad_tickers.append(row["ticker"])
@@ -272,14 +277,12 @@ def main():
         c252 = hist.iloc[251]["Close"]
 
         # relative strength (most recent quarter weighted double) will be compared 
-        # against total market, sector, and industry to calcate percentile rank
+        # against total market, sector, and industry to calcate percentile rankings
         # in order to approximate IBD score
         rs = df.loc[i, "strength"] = 2*price/c63 + price/c126 + price/c189 + price/c252
 
         hi52 = df.loc[i, "hi52"] = hist["High"].max()
         lo52 = df.loc[i, "lo52"] = hist["Low"].min()
-        
-
 
         df.loc[i, "profile"] = biz_summary = ticker.info.get("longBusinessSummary")
 
@@ -290,7 +293,7 @@ def main():
         if m:    
             df.loc[i, "inc"] = m.group(1)
 
-
+        # get() prevents failures on (missing) key errors
         df.loc[i, "cap"]           = ticker.info.get("marketCap")
         df.loc[i, "float"]         = ticker.info.get("floatShares")
         df.loc[i, "insiders"]      = ticker.info.get("heldPercentInsiders")
@@ -300,6 +303,7 @@ def main():
         df.loc[i, "website"]       = ticker.info.get("website")
 
 
+        # reading NULL calendar causes crash
         if ticker.calendar:
             df.loc[i, "earnings1"] = ticker.calendar["Earnings Date"][0]
             if len(ticker.calendar["Earnings Date"]) > 1:
@@ -310,9 +314,18 @@ def main():
         q_stmt = ticker.quarterly_incomestmt
 
         # if no quarterly statement, the ticker is not a company with filings
+        # and reading empty financials causes crash
         if not q_stmt.empty:
 
-            eps = q_stmt.loc["Basic EPS"].tolist()
+            try:
+                eps = q_stmt.loc["Basic EPS"].tolist()
+            except:
+                log(" : ******************* quarterly finanicals wihout EPS!!!! *******************\n")
+                bad_tickers.append(row["ticker"])
+                df.loc[i, "ticker"] = ""
+                continue
+
+
             rev = q_stmt.loc["Total Revenue"].tolist()
 
 
