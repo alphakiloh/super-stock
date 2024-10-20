@@ -17,7 +17,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 from gspread_dataframe import set_with_dataframe
 
-GDRIVE_FOLDER_ID = "15IHdGgeH4YeZH19fD8Ni7eYXvoiHBSsJ"
+GDRIVE_FOLDER_ID = "15IHdGgeH4YeZH19fD8Ni7eYXvoiHBSsJ" # G:My Drive\Finance\Screener\  
 CREDENTIAL_FOLDER_PATH = "../auth" # relative to location of THIS file
 
 class CachedLimiterSession(CacheMixin, LimiterMixin, Session):
@@ -86,7 +86,7 @@ def main():
 
 
     columns = {
-        # First three already pulled from SEC.gov
+        # first three fields already defined by pull from SEC.gov
         "cik_str"       : "text",
         "ticker"        : "text",
         "title"         : "text",
@@ -110,14 +110,14 @@ def main():
         "sma50"         : "float",
         "sma150"        : "float",
         "sma200"        : "float",
-        "eEq"            : "int",
+        "eEq"           : "int",
         "eps1"          : "float",
         "eps2"          : "float",
         "eps3"          : "float",
         "eps4"          : "float",
         "eps5"          : "float",
         "eps6"          : "float",
-        "eRq"            : "int",
+        "eRq"           : "int",
         "rev1"          : "int",
         "rev2"          : "int",
         "rev3"          : "int",
@@ -127,6 +127,7 @@ def main():
         #"grossMargin"   : "percent",
         #"netMargin"     : "percent",
         #"opMargin"      : "percent",
+        "ttc"           : "text",     # trend template criteria
         "website"       : "text",
         "profile"       : "text"
     }
@@ -134,12 +135,12 @@ def main():
     field_names = list(columns.keys())
     formats = list(columns.values())
 
-
+    # append columns and set values to NULL string
     for c in field_names[3:]:
         df[c] = ""
 
-    # G:My Drive\Finance\Screener\   
-    
+     
+    # open connection to g-sheet
     ts = datetime.datetime.now()
     wb_name = "screener_" + str(ts)
 
@@ -225,11 +226,6 @@ def main():
         else:
             c2 = chr(ord(c2)+1)
 
-
-
-
-    #df_err = pd.DataFrame
-
     #s2 = wb.add_worksheet("Errors", 0, 0)
 
     # to track failing tickers
@@ -239,6 +235,7 @@ def main():
     for i, row in df.iterrows():
     #for i, row in df.iloc[:5].iterrows():
 
+        # we'll calculate time delta at end of the loop to estimate running time left
         ts = datetime.datetime.now()
         
         log(
@@ -256,21 +253,27 @@ def main():
 
         log(" : summary & historical data retrieved")
 
+        # we want a full year of price history
         if len(hist.index) < 252:
             log(" : *********** not enough historical price data!!!!! ***********\n")
             bad_tickers.append(row["ticker"])
             df.loc[i, "ticker"] = ""
             continue
 
+        # calculate simple moving averages
         sma50 = df.loc[i, "sma50"] = sum(hist["Close"][:50].tolist()) / 50
         sma150 = df.loc[i, "sma150"] = sum(hist["Close"][:150].tolist()) / 150
         sma200 = df.loc[i, "sma200"] = sum(hist["Close"][:200].tolist()) / 200
 
+        # calculate (rs) relative strength
         c63 = hist.iloc[62]["Close"]
         c126 = hist.iloc[125]["Close"]
         c189 = hist.iloc[188]["Close"]
         c252 = hist.iloc[251]["Close"]
 
+        # relative strength (most recent quarter weighted double) will be compared 
+        # against total market, sector, and industry to calcate percentile rank
+        # in order to approximate IBD score
         rs = df.loc[i, "strength"] = 2*price/c63 + price/c126 + price/c189 + price/c252
 
         hi52 = df.loc[i, "hi52"] = hist["High"].max()
@@ -280,11 +283,13 @@ def main():
 
         df.loc[i, "profile"] = biz_summary = ticker.info.get("longBusinessSummary")
 
+        # get the founding/incorporated year from company summary blurb
         m = re.search('founded in ([0-9]{4})', biz_summary)
         if not m:
             m = re.search('incorporated in ([0-9]{4})', biz_summary)
         if m:    
             df.loc[i, "inc"] = m.group(1)
+
 
         df.loc[i, "cap"]           = ticker.info.get("marketCap")
         df.loc[i, "float"]         = ticker.info.get("floatShares")
@@ -304,7 +309,9 @@ def main():
 
         q_stmt = ticker.quarterly_incomestmt
 
+        # if no quarterly statement, the ticker is not a company with filings
         if not q_stmt.empty:
+
             eps = q_stmt.loc["Basic EPS"].tolist()
             rev = q_stmt.loc["Total Revenue"].tolist()
 
@@ -340,12 +347,20 @@ def main():
 
             df.loc[i, "eEq"] = eEq
             df.loc[i, "eRq"] = eRq
+
         else:
             log(" : *********** could not retrieve quarterly financial statements!!!!! ***********\n")
 
             # set ticker to NULL string, so we can filter it out out later
             bad_tickers.append(row["ticker"])
             df.loc[i, "ticker"] = ""
+
+
+        # check to see if company meets the Trend Template Criteria (can't check inside loop: relative-strength >= .7)
+        if price > sma50 > sma150 > sma200 and price >= 1.3 * lo52 and price >= .75 * hi52:
+            df.loc[i, "ttc"] = "Pass"
+        else:
+            df.loc[i, "ttc"] = "Fail"
 
 
         loop_dt = datetime.datetime.now() - ts
