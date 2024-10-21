@@ -18,9 +18,10 @@ import gspread
 from google.oauth2.service_account import Credentials
 from gspread_dataframe import set_with_dataframe
 
-GDRIVE_FOLDER_ID = "15IHdGgeH4YeZH19fD8Ni7eYXvoiHBSsJ" # G:My Drive\Finance\Screener\  
+ 
 CREDENTIAL_FOLDER_PATH = "../auth" # relative to location of THIS file
 LOG_FOLDER_PATH = "../log" # relative to location of THIS file
+JSON_FOLDER_PATH = "../json" # relative to location of THIS file
 
 class CachedLimiterSession(CacheMixin, LimiterMixin, Session):
     pass
@@ -62,7 +63,7 @@ def get_auth_filepath():
         else:
             raise Exception("JSON credential file not found!")    
 
-def main(): # TO-DO read in argv options to: 1) permit clearing yfinance cache 2) specify gauth JSON location 3) specify gdrive folder ID
+def main(): # takes one argument: the Google Drive folder ID as a string
 
     # create matching log and gsheet filenames 
     ts = str(datetime.datetime.now()).replace(" ", "_")
@@ -323,10 +324,6 @@ def main(): # TO-DO read in argv options to: 1) permit clearing yfinance cache 2
                 q += 1
             df.loc[i, "eNm"] = eNm
 
-
-
-            
-
         else:
             log(" : ***** MISSING DATA ***** | could not retrieve quarterly financial statements |", log_filename)
 
@@ -454,7 +451,7 @@ def main(): # TO-DO read in argv options to: 1) permit clearing yfinance cache 2
 
 
 
-    wb = gs.create(title= gsheet_filename, folder_id=GDRIVE_FOLDER_ID)
+    wb = gs.create(title= gsheet_filename, folder_id=sys.argv[1])
     wb.sheet1.update_title("Data")
 
     log(" : building the gspread format dictionary list", log_filename)
