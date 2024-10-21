@@ -90,7 +90,7 @@ def main(): # takes one argument: the Google Drive folder ID as a string
     # transpose the dataframe
     df = df.T
 
-    # DEBUG : limit to first n tickers
+    # DEBUG : limit to first N tickers
     #df.drop(df.tail(len(df.index) - 20).index, inplace=True)
 
     # DEBUG : limit to small number of tickers, including trouble tickers

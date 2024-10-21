@@ -25,3 +25,10 @@
 * generate charts for the top N tickers
 * algorithm(s) to recognize and plot patterns (e.g., VCP, flag/pennant, breakout, etc)
 * automatically run a screen at market close every Friday and publish data and charts to web
+
+#### For anyone planning on testing this script:
+* highly recommend to limit the number of tickers when running for first time - would not be nice if script ran for hours only to crash when trying to write to g-sheets at the end
+* you can search (CTRL+F) for "DEBUG" within main() and comment out one of the lines that prunes the dataframe
+* script takes one command line option, the Google Drive folder ID being written to, which is the string of random looking characters following the base URL: https://drive.google.com/drive/folders/
+* need to set up auth to permit writes to the G-Drive (CTRL+F for "JSON" here: https://developers.google.com/workspace/guides/create-credentials)
+* script expects to find your JSON file in ../auth (relative to the location of the script itself)
