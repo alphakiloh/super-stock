@@ -92,7 +92,7 @@ def main(): # takes one argument: the Google Drive folder ID as a string
     df = df.T
 
     # DEBUG : limit to first n tickers
-    df.drop(df.tail(len(df.index) - 20).index, inplace=True)
+    #df.drop(df.tail(len(df.index) - 20).index, inplace=True)
 
     # DEBUG : limit to small number of tickers, including trouble tickers
     #df = df[df["ticker"].isin(["PHYS","AAPL","NVDA","GOOG","NFLX"])]
