@@ -18,6 +18,7 @@
 #### Basic features so far:
 * pulls all stock tickers from SEC.gov
 * uses [yfinance](https://github.com/ranaroussi/yfinance/tree/main) to scrape historical price and quarterly financial data
+* calulcates an approximation of the IDB score
 * saves results to g-sheets
 
 #### Stuff I'm working on or planning to work on:

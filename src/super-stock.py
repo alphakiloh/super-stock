@@ -21,13 +21,12 @@ from gspread_dataframe import set_with_dataframe
  
 CREDENTIAL_FOLDER_PATH = "../auth" # relative to location of THIS file
 LOG_FOLDER_PATH = "../log" # relative to location of THIS file
-JSON_FOLDER_PATH = "../json" # relative to location of THIS file
 
 class CachedLimiterSession(CacheMixin, LimiterMixin, Session):
     pass
 
 session = CachedLimiterSession(
-    limiter=Limiter(RequestRate(1, Duration.SECOND*1)),  # max 1 requests per 2 seconds
+    limiter=Limiter(RequestRate(1, Duration.SECOND*1)),  # max 1 requests per 1 seconds
     bucket_class=MemoryQueueBucket,
     backend=SQLiteCache("yfinance.cache"),
 )
@@ -179,8 +178,6 @@ def main(): # takes one argument: the Google Drive folder ID as a string
     for c in field_names[3:]:
         df[c] = ""
 
-
-
     #s2 = wb.add_worksheet("Bad Tickers", 0, 0) - TO_DO : collect information (nature of failure, etc) about bad tickers on sheet2 of the gsheet
 
     # to track failing tickers
@@ -192,7 +189,6 @@ def main(): # takes one argument: the Google Drive folder ID as a string
 
     # df's i(ndex) key is not necessarily (1,2,3,...) incremental (like when we start with a filtered frame for debugging), use loop_count for estimating execution time
     loop_count = 0
-
 
     for i, row in df.iterrows():
     #for i, row in df.iloc[:5].iterrows():
@@ -269,8 +265,7 @@ def main(): # takes one argument: the Google Drive folder ID as a string
                         eps[q] = net_income / num_shares
                 
                 col_name = "eps" + str(q+1)
-                df.loc[i, col_name] = eps[q]
-                
+                df.loc[i, col_name] = eps[q] 
 
             for q in range(len(eps)):    
                 # 2q rolling avg, replace negative earnings with 0 when averaging
@@ -442,14 +437,11 @@ def main(): # takes one argument: the Google Drive folder ID as a string
     ]
     creds = Credentials.from_service_account_file(gauth_path, scopes=scopes)
 
-
     log(" : establishing connections to g-sheet", log_filename)
       
     gs = gspread.authorize(creds)
      
     log(" : initializing our g-sheet", log_filename)
-
-
 
     wb = gs.create(title= gsheet_filename, folder_id=sys.argv[1])
     wb.sheet1.update_title("Data")
@@ -461,7 +453,6 @@ def main(): # takes one argument: the Google Drive folder ID as a string
     gs_format = []
     c1 = "A"
     c2 = ""
-
 
     # A,B,C ...ZZ
     ascii_upper = list(map(chr, range(ord("A"), ord("Z")+1)))
