@@ -93,8 +93,8 @@ def main(): # takes one argument: the Google Drive folder ID as a string
     # DEBUG : limit to first N tickers
     #df.drop(df.tail(len(df.index) - 20).index, inplace=True)
 
-    # DEBUG : limit to small number of tickers, including trouble tickers
-    #df = df[df["ticker"].isin(["PHYS","AAPL","NVDA","GOOG","NFLX"])]
+    #DEBUG : limit to small number of tickers, including trouble tickers
+    #df = df[df["ticker"].isin(["SW","AAPL","NVDA","GOOG","NFLX"])]
     #print(df)
 
     #exit()
@@ -171,12 +171,11 @@ def main(): # takes one argument: the Google Drive folder ID as a string
 
     field_names = list(columns.keys())
 
-
     log(" : building out the columns of our dataframe", log_filename)
 
-    # append columns and set values to NULL string
+    # append columns and set values to NaN
     for c in field_names[3:]:
-        df[c] = ""
+        df[c] = np.nan
 
     #s2 = wb.add_worksheet("Bad Tickers", 0, 0) - TO_DO : collect information (nature of failure, etc) about bad tickers on sheet2 of the gsheet
 
@@ -217,19 +216,19 @@ def main(): # takes one argument: the Google Drive folder ID as a string
         # and reading empty financials causes crash
         if not q_stmt.empty:
 
-            if len(q_stmt) < 4:
-                log(" : ***** MISSING DATA ***** | less than 4 quarters of financial statments |", log_filename)
-                bad_tickers.append(row["ticker"])
-                log(f" : {df.loc[i, "ticker"]} will be dropped from dataframe when scraping completes\n", log_filename)
-                df.loc[i, "ticker"] = ""
-                continue
-
             q_stmt_col_names = list(q_stmt.columns)
 
             try:
                 eps = q_stmt.loc["Basic EPS"].tolist()
             except:
                 log(" : ***** MISSING DATA ***** | quarterly finanicals without EPS |", log_filename)
+                bad_tickers.append(row["ticker"])
+                log(f" : {df.loc[i, "ticker"]} will be dropped from dataframe when scraping completes\n", log_filename)
+                df.loc[i, "ticker"] = ""
+                continue
+
+            if len(eps) < 4:
+                log(" : ***** MISSING DATA ***** | less than 4 quarters of financial statements |", log_filename)
                 bad_tickers.append(row["ticker"])
                 log(f" : {df.loc[i, "ticker"]} will be dropped from dataframe when scraping completes\n", log_filename)
                 df.loc[i, "ticker"] = ""
@@ -275,11 +274,11 @@ def main(): # takes one argument: the Google Drive folder ID as a string
                 df.loc[i, col_name] = eps[q] 
 
             for q in range(len(eps)):    
-                # 2q rolling avg, replace negative earnings with 0 when averaging
+                # 2q rolling avg, avoid negative numerator with max(q + q, 0)
                 col_name = "eps" + str(q+1) + "ra"
 
                 if q < len(eps) - 1 and not np.isnan(eps[q + 1]):
-                    df.loc[i, col_name] = (max(eps[q], 0) + max(eps[q + 1], 0)) / 2
+                    df.loc[i, col_name] = max(eps[q] + eps[q + 1], 0) / 2
                 else:
                     df.loc[i, col_name] = eps[q]
 
@@ -289,7 +288,7 @@ def main(): # takes one argument: the Google Drive folder ID as a string
                 col_name = "rev" + str(q+1)
                 df.loc[i, col_name]  = rev[q]
 
-                if rev[q] > 0:
+                if rev[q] != 0:
                     col_name = "netMargin" + str(q+1)
                     df.loc[i, col_name] = netIncome[q] / rev[q]
 
