@@ -217,6 +217,13 @@ def main(): # takes one argument: the Google Drive folder ID as a string
         # and reading empty financials causes crash
         if not q_stmt.empty:
 
+            if len(q_stmt) < 4:
+                log(" : ***** MISSING DATA ***** | less than 4 quarters of financial statments |", log_filename)
+                bad_tickers.append(row["ticker"])
+                log(f" : {df.loc[i, "ticker"]} will be dropped from dataframe when scraping completes\n", log_filename)
+                df.loc[i, "ticker"] = ""
+                continue
+
             q_stmt_col_names = list(q_stmt.columns)
 
             try:
@@ -282,8 +289,9 @@ def main(): # takes one argument: the Google Drive folder ID as a string
                 col_name = "rev" + str(q+1)
                 df.loc[i, col_name]  = rev[q]
 
-                col_name = "netMargin" + str(q+1)
-                df.loc[i, col_name] = netIncome[q] / rev[q]
+                if rev[q] > 0:
+                    col_name = "netMargin" + str(q+1)
+                    df.loc[i, col_name] = netIncome[q] / rev[q]
 
             log(" : calculating number of growth quarters", log_filename)
 
