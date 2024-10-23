@@ -1,8 +1,7 @@
-
 import re
-import itertools
 import os
 import sys
+import json
 import pandas as pd
 import urllib.request 
 import requests 
@@ -14,13 +13,11 @@ from requests_ratelimiter import LimiterMixin, MemoryQueueBucket
 from pyrate_limiter import Duration, RequestRate, Limiter
 import datetime
 
-import gspread
-from google.oauth2.service_account import Credentials
-from gspread_dataframe import set_with_dataframe
+from gsheet import gsheet_write
 
- 
 CREDENTIAL_FOLDER_PATH = "../auth" # relative to location of THIS file
 LOG_FOLDER_PATH = "../log" # relative to location of THIS file
+JSON_FOLDER_PATH = "../json" # relative to location of THIS file
 
 class CachedLimiterSession(CacheMixin, LimiterMixin, Session):
     pass
@@ -32,18 +29,15 @@ session = CachedLimiterSession(
 )
 
 def log(message, filename="", timestamp=True, cli=True):
-    
-    # add timestamp 
+
     if timestamp:
         ts = str(datetime.datetime.now())
     else:
         ts = ""
 
-    # log to CLI
     if cli:
         print(ts + message)
 
-    # log to file
     if filename != "":
         dir_path = os.path.dirname(os.path.realpath(__file__))
         f = open(dir_path + "/" + LOG_FOLDER_PATH  + "/" + filename, "a")
@@ -52,7 +46,6 @@ def log(message, filename="", timestamp=True, cli=True):
 
 def get_auth_filepath():
 
-    # search in CREDENTIAL_FOLDER_PATH for JSON credential file
     dir_path = os.path.dirname(os.path.realpath(__file__))
     path = dir_path + "/" + CREDENTIAL_FOLDER_PATH
 
@@ -64,13 +57,11 @@ def get_auth_filepath():
 
 def main(): # takes one argument: the Google Drive folder ID as a string
 
-    # create matching log and gsheet filenames 
     ts = str(datetime.datetime.now()).replace(" ", "_")
     script_name  = re.search(r"([^\/]+?)(\.py)$", sys.argv[0]).group(1)
     gsheet_filename =  script_name + "_" + ts 
     log_filename = script_name + "_" + ts + ".log"
 
-    # get tickers from www.sec.gov
     url = "https://www.sec.gov/files/company_tickers.json"
     headers = {
         "User-Agent" : "Foo Bar foo@bar.com",
@@ -78,123 +69,45 @@ def main(): # takes one argument: the Google Drive folder ID as a string
         "Host" : "www.sec.gov"
     }
 
-    log(" : retieving tickers from SEC.gov", log_filename)
-
     req = urllib.request.Request(url, headers=headers)
-
-    log(" : initializing our dataframe with tickers", log_filename)
-
     with urllib.request.urlopen(req) as response:
         df = pd.read_json(response, compression="gzip")
-
-    # transpose the dataframe
     df = df.T
 
     # DEBUG : limit to first N tickers
-    #df.drop(df.tail(len(df.index) - 20).index, inplace=True)
+    df.drop(df.tail(len(df.index) - 20).index, inplace=True)
 
     #DEBUG : limit to small number of tickers, including trouble tickers
     #df = df[df["ticker"].isin(["SW","AAPL","NVDA","GOOG","NFLX"])]
+    
     #print(df)
-
     #exit()
 
-    columns = {
-        # first three fields already defined by pull from SEC.gov
-        "cik_str"       : "text",
-        "ticker"        : "text",
-        "title"         : "text",
-        # rest need to be added
-        "price"         : "float",
-        "inc"           : "year",
-        "cap"           : "int",
-        "float"         : "int",
-        "insiders"      : "percent",
-        "institutions"  : "percent",
-        "earnings1"     : "date",
-        "earnings2"     : "date",
-        "sector"        : "text",
-        "industry"      : "text",
-        "hi52"          : "float",
-        "lo52"          : "float",
-        "strength"      : "float",
-        "pTotalMarket"  : "float",
-        "pSector"       : "float",
-        "pIndustry"     : "float",
-        "sma50"         : "float",
-        "sma150"        : "float",
-        "sma200"        : "float",
-        "eEq"           : "int",
-        "eps1"          : "float",
-        "eps2"          : "float",
-        "eps3"          : "float",
-        "eps4"          : "float",
-        "eps5"          : "float",
-        "eps6"          : "float",
-        "eps7"          : "float",
-        "eps8"          : "float",
-        "eps9"          : "float",
-        "eEqRa"         : "int",
-        "eps1ra"        : "float",
-        "eps2ra"        : "float",
-        "eps3ra"        : "float",
-        "eps4ra"        : "float",
-        "eps5ra"        : "float",
-        "eps6ra"        : "float",
-        "eps7ra"        : "float",
-        "eps8ra"        : "float",
-        "eps9ra"        : "float",
-        "eRq"           : "int",
-        "rev1"          : "int",
-        "rev2"          : "int",
-        "rev3"          : "int",
-        "rev4"          : "int",
-        "rev5"          : "int",
-        "rev6"          : "int",
-        "rev7"          : "int",
-        "rev8"          : "int",
-        "rev9"          : "int",
-        "eNm"           : "int",
-        "netMargin1"    : "percent",
-        "netMargin2"    : "percent",
-        "netMargin3"    : "percent",
-        "netMargin4"    : "percent",
-        "netMargin5"    : "percent",
-        "netMargin6"    : "percent",
-        "netMargin7"    : "percent",
-        "netMargin8"    : "percent",
-        "netMargin9"    : "percent",
-        "ttc"           : "text",     # trend template criteria
-        "website"       : "text",
-        "profile"       : "text"
-    }
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    f = open(dir_path + "/" + JSON_FOLDER_PATH + "/columns.json", "r")
+    column_definitions = json.load(f)
+    f.close()
 
-    field_names = list(columns.keys())
+    sec_field_names = df.columns.tolist()
 
-    log(" : building out the columns of our dataframe", log_filename)
+    # first three columns already have data from SEC
+    for field_name, field_type in column_definitions.items():
+        if field_name not in sec_field_names:
+            if field_type in ("text", "date"):
+                df[field_name] = ""
+            else:
+                df[field_name] = np.nan
 
-    # append columns and set values to NaN
-    for c in field_names[3:]:
-        df[c] = np.nan
-
-    #s2 = wb.add_worksheet("Bad Tickers", 0, 0) - TO_DO : collect information (nature of failure, etc) about bad tickers on sheet2 of the gsheet
-
-    # to track failing tickers
     bad_tickers = []
-
-    log(" : start scraping\n\n", log_filename)
-
     num_tickers = len(df.index)
-
-    # df's i(ndex) key is not necessarily (1,2,3,...) incremental (like when we start with a filtered frame for debugging), use loop_count for estimating execution time
     loop_count = 0
 
-    for i, row in df.iterrows():
+    log(" : start scraping\n\n", log_filename)
+    
     #for i, row in df.iloc[:5].iterrows():
-
-        # we'll calculate time delta at end of the loop to estimate running time left
-        ts = datetime.datetime.now()
-        
+    for i, row in df.iterrows():
+    
+        loop_start_dt = datetime.datetime.now()
         loop_count += 1
         
         log(
@@ -255,28 +168,22 @@ def main(): # takes one argument: the Google Drive folder ID as a string
             log(" : recording EPS data", log_filename)
 
             for q in range(len(eps)):
-                
                 # if EPS is missing try to calculate it from net income and outstanding shares, either from current or previous quarter            
                 if np.isnan(eps[q]):
-                
                     num_shares = q_stmt.loc["Basic Average Shares", q_stmt_col_names [q]]
                     if np.isnan(num_shares) and q < len(eps) - 1:
                         num_shares = q_stmt.loc["Basic Average Shares", q_stmt_col_names [q + 1]]
-
                     net_income = q_stmt.loc["Net Income", q_stmt_col_names[q]]
                     if np.isnan(net_income) and q < len(eps) - 1:
                         net_income = q_stmt.loc["Net Income", q_stmt_col_names[q + 1]]
-                
                     if not np.isnan(num_shares) and not np.isnan(num_shares):
                         eps[q] = net_income / num_shares
-                
                 col_name = "eps" + str(q+1)
                 df.loc[i, col_name] = eps[q] 
 
             for q in range(len(eps)):    
                 # 2q rolling avg, avoid negative numerator with max(q + q, 0)
                 col_name = "eps" + str(q+1) + "ra"
-
                 if q < len(eps) - 1 and not np.isnan(eps[q + 1]):
                     df.loc[i, col_name] = max(eps[q] + eps[q + 1], 0) / 2
                 else:
@@ -287,7 +194,6 @@ def main(): # takes one argument: the Google Drive folder ID as a string
             for q in range(len(rev)):
                 col_name = "rev" + str(q+1)
                 df.loc[i, col_name]  = rev[q]
-
                 if rev[q] != 0:
                     col_name = "netMargin" + str(q+1)
                     df.loc[i, col_name] = netIncome[q] / rev[q]
@@ -297,7 +203,7 @@ def main(): # takes one argument: the Google Drive folder ID as a string
             # count the number of escalating EPS quarters 
             eEq = 0 
             q = 1
-            while q < len(eps) and eps[q-1] >= eps[q]:
+            while q < len(eps) and eps[q-1] > eps[q]:
                 eEq += 1
                 q += 1
             df.loc[i, "eEq"] = eEq
@@ -305,7 +211,7 @@ def main(): # takes one argument: the Google Drive folder ID as a string
             # count the number of escalating EPS quarters (smoothed to 2q rolling avg)
             eEqRa = 0 
             q = 1
-            while q < len(eps) and df.loc[i, f"eps{q}ra"] >= df.loc[i, f"eps{q + 1}ra"]:
+            while q < len(eps) and df.loc[i, f"eps{q}ra"] > df.loc[i, f"eps{q + 1}ra"]:
                 eEqRa += 1
                 q += 1
             df.loc[i, "eEqRa"] = eEqRa
@@ -313,7 +219,7 @@ def main(): # takes one argument: the Google Drive folder ID as a string
             # count the number of escalating Revenue quarters
             eRq = 0 
             q = 1
-            while q < len(rev) and rev[q-1] >= rev[q]:
+            while q < len(rev) and rev[q-1] > rev[q]:
                 eRq += 1  
                 q +=1
             df.loc[i, "eRq"] = eRq
@@ -321,14 +227,13 @@ def main(): # takes one argument: the Google Drive folder ID as a string
             # count the number of escalating Margin quarters
             eNm = 0 
             q = 1
-            while q < len(eps) and df.loc[i, f"netMargin{q}"] >= df.loc[i, f"netMargin{q + 1}"]:
+            while q < len(eps) and df.loc[i, f"netMargin{q}"] > df.loc[i, f"netMargin{q + 1}"]:
                 eNm += 1
                 q += 1
             df.loc[i, "eNm"] = eNm
 
         else:
             log(" : ***** MISSING DATA ***** | could not retrieve quarterly financial statements |", log_filename)
-
             # set ticker to NULL string, so we can filter it out out later
             bad_tickers.append(row["ticker"])
             log(f" : {df.loc[i, "ticker"]} will be dropped from dataframe when scraping completes\n", log_filename)
@@ -338,7 +243,6 @@ def main(): # takes one argument: the Google Drive folder ID as a string
         log(" : retrieving historical price data", log_filename)
 
         hist = ticker.history(period="1y")
-        
         # we want a full year of price history
         # setting ticker to NULL string means it gets filtered/dropped later
         if len(hist.index) < 251:
@@ -348,7 +252,7 @@ def main(): # takes one argument: the Google Drive folder ID as a string
             df.loc[i, "ticker"] = ""
             continue
 
-        # sort descending : TO_DO: try sort_values() - the history request section takes 2 seconds on avg instead of expected 1 sec to execute the request
+        # sort descending 
         hist = hist.iloc[::-1]
 
         price = df.loc[i, "price"] = hist.iloc[0]["Close"]
@@ -409,10 +313,10 @@ def main(): # takes one argument: the Google Drive folder ID as a string
         if ticker.calendar:
             earnings_date = ticker.calendar.get("Earnings Date")
             for dt_i in range(len(earnings_date)):
-                df.loc[i, f"earnings{dt_i + 1}"] = earnings_date[dt_i]
+                df.loc[i, f"earnings{dt_i + 1}"] = earnings_date[dt_i].strftime("%Y-%m-%d")
 
         # calculate how long a loop iteration lasts and estimate scraping time remaining
-        loop_dt = datetime.datetime.now() - ts
+        loop_dt = datetime.datetime.now() - loop_start_dt
         loop_seconds = loop_dt.total_seconds()
         hrs_remaining = (loop_seconds * (num_tickers - loop_count)) / 3600
 
@@ -425,7 +329,7 @@ def main(): # takes one argument: the Google Drive folder ID as a string
         log(" : ***** | the following tickers failed |\n", log_filename)
         for i in range(len(bad_tickers)):
             log(bad_tickers[i], log_filename, False)
-            log("\n", log_filename, False)
+        log("\n", log_filename, False)            
 
     log(" : calculating relative strength percentiles", log_filename)
 
@@ -438,107 +342,13 @@ def main(): # takes one argument: the Google Drive folder ID as a string
 
     # https://developers.google.com/workspace/guides/create-credentials <--service account: download JSON file, share folder with account email
     gauth_path = get_auth_filepath()
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ]
-    creds = Credentials.from_service_account_file(gauth_path, scopes=scopes)
 
-    log(" : establishing connections to g-sheet", log_filename)
-      
-    gs = gspread.authorize(creds)
-     
-    log(" : initializing our g-sheet", log_filename)
+    log(" : writing dataframe to gsheet", log_filename)
 
-    wb = gs.create(title= gsheet_filename, folder_id=sys.argv[1])
-    wb.sheet1.update_title("Data")
-
-    log(" : building the gspread format dictionary list", log_filename)
-
-    # build list of dictionaries to feed to gspread to format our columns
-    formats = list(columns.values())
-    gs_format = []
-    c1 = "A"
-    c2 = ""
-
-    # A,B,C ...ZZ
-    ascii_upper = list(map(chr, range(ord("A"), ord("Z")+1)))
-    column_index_names = list(map("".join, itertools.product(ascii_upper, ascii_upper)))
-    column_index_names = ascii_upper + column_index_names
-
-    for i, f in enumerate(formats):
-        col = column_index_names[i]
-        match f:
-            case "int":
-                d = {
-                    "range" : f"{col}:{col}",                
-                    "format" : {
-                        "numberFormat" : {
-                            "type" : "NUMBER",
-                            "pattern" : "#,##0"
-                        }
-                    }
-                }
-            case "float":
-                d = {
-                    "range" : f"{col}:{col}",                
-                    "format" : {
-                        "numberFormat" : {
-                            "type" : "NUMBER",
-                            "pattern" : "#,##0.00;(#,##0.00)"
-                        }
-                    }
-                }
-            case "percent":
-                d = {
-                    "range" : f"{col}:{col}",                
-                    "format" : {
-                        "numberFormat" : {
-                            "type" : "NUMBER",
-                            "pattern" : "0%"
-                        }
-                    }
-                }
-            case "text":
-                d = {
-                    "range" : f"{col}:{col}",                
-                    "format" : {
-                        "textFormat" : {
-                            "bold" : False,
-                        }
-                    }
-                }
-            case "date":
-                d = {
-                    "range" : f"{col}:{col}",                
-                    "format" : {
-                        "numberFormat" : {
-                            "type" : "DATE",
-                            "pattern" : "yyyy-mm-dd"
-                        }
-                    }
-                }
-        gs_format.append(d)
-
-    log(" : writing to gsheet", log_filename)
-
-    # write dataframe to g-sheet
-    s1 = wb.sheet1
-
-    set_with_dataframe(s1, df)
-
-    log(" : formatting the gsheet", log_filename)
-
-    s1.batch_format(gs_format)
-   
-    s1.format("1:1", {"textFormat": {"bold": True}})
-    s1.format("1:1", {"horizontalAlignment": "CENTER"})
-    s1.freeze(rows=1,cols=3)
-    s1.hide_columns(start=0, end=1)
+    gsheet_formats = list(column_definitions.values())
+    gsheet_write(sys.argv[1], gsheet_filename, gauth_path, gsheet_formats, df)
 
     log("\n\n all done !!\n", log_filename, False)    
-
-    #print(df)
 
 main()
 
